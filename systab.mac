@@ -405,12 +405,11 @@ PROTECT:
 	DB	14h
 
 
-
 ;	END
 ;.block 32
 ;.org (($ + 3) & (~3))+1
 FREEMEM:
-.fill 2048
+.fill 4096
 STACK:
 FILES:
 .fill 32
