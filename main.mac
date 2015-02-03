@@ -1,0 +1,16 @@
+.binarymode ti8x
+.org 9d93h
+.db 0BBh,6Dh;
+
+;.INCLUDE 8klisp.def
+;.echo $
+;.echo "\n"
+;.include 8klisp.mac
+;.echo $
+;.echo "\n"
+;.include inout.mac
+;.include systab.mac
+;.include fsubr.mac
+;.include garbage.mac
+;.include subr.mac
+;.include prim.mac

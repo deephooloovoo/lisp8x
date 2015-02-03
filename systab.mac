@@ -1,0 +1,417 @@
+;SYSTAB.MAC
+;860312 ALEX
+
+.INCLUDE 8KLISP.DEF
+
+/*SYMB(MACRO VALUE,CODE,PNAME)
+$LEN DEFL .&CODE-$
+	DB $LEN
+	DW VALUE,CODE##,NIL
+	DW .&CODE
+	DC PNAME
+	DS (3 - (($-HEAP) AND 3) AND 3)
+	DB $LEN
+.&CODE:
+	ENDM
+
+	DSEG*/
+.deflong SYMB(VALUE,CODE,PNAME)
+-:
+	.db {+}-{-}
+	.dw VALUE,CODE,NIL
+	.dw {+}
+	.db PNAME,0
+;	.block (3-(($-HEAP) &3))&3
+	.org ($ | 3 )+1
+	.db {+}-{-}
++:
+.enddeflong
+TokenTable:
+	.db	tSpace
+	.db	tAPost
+	.db	tLParen
+	.db	tRParen
+	.db	tLT
+	.db	tGT
+	.db	tA
+	.db	tB
+	.db	tC
+	.db	tD
+	.db	tE
+	.db	tF
+	.db	tG
+	.db	tH
+	.db	tI
+	.db	tJ
+	.db	tK
+	.db	tL
+	.db	tM
+	.db	tN
+	.db	tO
+	.db	tP
+	.db	tQ
+	.db	tR
+	.db	tS
+	.db	tT
+	.db	tU
+	.db	tV
+	.db	tW
+	.db	tX
+	.db	tY
+	.db	tZ
+	.db	30h	;wtf ti83plus.inc does not include t0-t2
+	.db	31h
+	.db	32h
+	.db	t3
+	.db	t4
+	.db	t5
+	.db	t6
+	.db	t7
+	.db	t8
+	.db	t9
+	.db	tAdd
+	.db	tSub
+	.db	tMul
+	.db	tDiv
+	.db	tDecPt
+	.db tEnter
+
+KeyTable:
+	.db	kSpace
+	.db	kQuote
+	.db	kLParen
+	.db	kRParen
+	.db	kLBrace
+	.db	kRBrace
+	.db	kCapA
+	.db	kCapB
+	.db	kCapC
+	.db	kCapD
+	.db	kCapE
+	.db	kCapF
+	.db	kCapG
+	.db	kCapH
+	.db	kCapI
+	.db	kCapJ
+	.db	kCapK
+	.db	kCapL
+	.db	kCapM
+	.db	kCapN
+	.db	kCapO
+	.db	kCapP
+	.db	kCapQ
+	.db	kCapR
+	.db	kCapS
+	.db	kCapT
+	.db	kCapU
+	.db	kCapV
+	.db	kCapW
+	.db	kCapX
+	.db	kCapY
+	.db	kCapZ
+	.db	k0
+	.db	k1
+	.db	k2
+	.db	k3
+	.db	k4
+	.db	k5
+	.db	k6
+	.db	k7
+	.db	k8
+	.db	k9
+	.db	kAdd
+	.db	kSub
+	.db	kMul
+	.db	kDiv
+	.db	kDecml
+	.db kEnter
+
+
+CharTable:
+	.db	Lspace
+	.db	Lapostrophe
+	.db	LlParen
+	.db	LrParen
+	.db	LLT
+	.db	LGT
+	.db	LcapA
+	.db	LcapB
+	.db	LcapC
+	.db	LcapD
+	.db	LcapE
+	.db	LcapF
+	.db	LcapG
+	.db	LcapH
+	.db	LcapI
+	.db	LcapJ
+	.db	LcapK
+	.db	LcapL
+	.db	LcapM
+	.db	LcapN
+	.db	LcapO
+	.db	LcapP
+	.db	LcapQ
+	.db	LcapR
+	.db	LcapS
+	.db	LcapT
+	.db	LcapU
+	.db	LcapV
+	.db	LcapW
+	.db	LcapX
+	.db	LcapY
+	.db	LcapZ
+	.db	L0
+	.db	L1
+	.db	L2
+	.db	L3
+	.db	L4
+	.db	L5
+	.db	L6
+	.db	L7
+	.db	L8
+	.db	L9
+	.db	LplusSign
+	.db	Ldash
+	.db	Lasterisk
+	.db	Lslash
+	.db	Lperiod
+	.db	LsubT
+
+
+;******************;
+;SINGLE BYTE TOOLS ;
+;******************;
+TOOLS:
+_POPLIST:
+	LD E,(HL)		;RST 08H: POP LIST IN HL INTO DE
+	INC HL
+	LD D,(HL)
+	INC HL
+	LD A,(HL)		;CDR IN HL (REVERSE)
+	INC HL
+	LD L,(HL)
+	LD H,A
+	RET
+
+	DW NIL			;NIL AT NIL'S ADDRESS (0011H)
+	DB HIGH(NIL)
+	DB LOW(NIL)
+	NOP
+	NOP
+	NOP
+
+_FETCH:
+	LD A,(HL)			;RST 18H: FETCH WORD ADDRESSED BY HL
+	INC HL
+	LD H,(HL)
+	LD L,A
+	RET
+	NOP
+	NOP
+	NOP
+_CPDE:
+	LD A,H				;RST 20H: COMPARE DE AND HL
+	CP D
+	RET NZ
+	LD A,L
+	CP E
+	RET
+	NOP
+	NOP
+_CPBC:
+	LD A,H				;RST 28H: COMPARE BC AND HL
+	CP B
+	RET NZ
+	LD A,L
+	CP C
+	RET
+
+;******************;
+; SYSTEM VARIABLES ;
+;******************;
+T1:	DS 128			;ARITHMETIC BUFFERS AND FILE BUFFER FOR SAVE+LOAD
+T2:	DS 128
+LBP:	DW LBUF			;LINE BUFFER PTR
+SHORT:	DB 1,0			;SHORT NUMBER BUFFER
+
+SAVSYS:DB "8K"
+MEMTOP:DW 0			;TOP OF MEMORY
+HEAPTR: .DW FREEMEM		;HEAP SPACE PTR
+STKSAV:DW 0			;STACK SAVE
+SINIT:	DW 0			;INITIAL STACK PTR
+BASE:	DB 1,10			;NUMBER BASE
+NXTCHR:DB ' '			;NEXT CHAR FOR READER
+FLAG:	DB 0			;GENERAL PURPOSE FLAG
+LEVEL:	DB 0			;READ-EVAL-LOOP LEVEL
+IOCHAN:DW NIL			;I/O CHANNEL ADDRESS
+TEMP:	DW 0			;TEMPORARY STORAGE
+FBASE:	DW 0			;FRAME BASE
+CBASE:	DW 0			;CATCH BASE
+GSEED:	DB "G00000"		;GENSYM SEED
+CELL0:	DW NIL,1100H	;NIL-CONS CELL ****
+ZERO:	DB 84H,0		;ZERO MUST START AT OBJECT BOUNDARY! ****
+FILMAX:DB 16			;MAXIMUM NUMBER OF FILES
+STEPM:	DB 0			;STEPMODE
+ONE:	DB 84H,1,1		;ONE MUST START AT OBJECT BOUNDARY! ****
+LDFLG:	DB 0			;LOAD FLAG
+.align 4
+.block 1
+;THE HEAP MUST START AT AN ADDRESS WHICH IS ONE MORE THAN A MULTIPLE OF 4
+;(OBJECT BOUNDARY)
+HEAP:
+TSYM:
+	SYMB(TSYM,TRET,"T")
+QUOTSYM:
+	SYMB(0,QUOTE,"QUOTE")
+GCSYM:
+	SYMB(NIL,GC,"GC")
+ALCSYM:
+	SYMB(NIL,ALLOC,"ALLOC")
+INTSYM:
+	SYMB(TSYM,INTERN,"INTERN")
+SSSYM:
+	SYMB(NIL,SS,"SS")
+ATSYM:
+	SYMB(0,AT_OP,"@")
+STEPSYM:
+	SYMB(ZERO,STEP,"STEP")
+PROTECT:
+	SYMB(0,RUN,"RUN")
+	SYMB(0,STOP,"STOP")
+	SYMB(0,BIOS,"BIOS")
+	SYMB(0,BDOS,"BDOS")
+	SYMB(0,REVALO,"REVALO")
+	SYMB(0,EVAL,"EVAL")
+	SYMB(0,APPLY,"APPLY")
+	SYMB(0,SETQ,"SETQ")
+	SYMB(0,SET,"SET")
+	SYMB(0,CHAR,"CHAR")
+	SYMB(0,ASCII,"ASCII")
+	SYMB(0,POP,"POP")
+	SYMB(0,PUSH,"PUSH")
+	SYMB(0,SAVE,"SAVE")
+	SYMB(0,LOAD,"LOAD")
+	SYMB(0,REN,"REN")
+	SYMB(0,ERA,"ERA")
+	SYMB(0,DIR,"DIR")
+	SYMB(0,IN,"IN")
+	SYMB(0,CRLF,"CR")
+	SYMB(0,SPC,"SP")
+	SYMB(0,GETC,"GETC")
+	SYMB(0,PUTC,"PUTC")
+	SYMB(0,PRIN1,"PRIN1")
+	SYMB(0,PRINT,"PRINT")
+	SYMB(0,KEY,"KEY")
+	SYMB(0,READ,"READ")
+	SYMB(0,SEEK,"SEEK")
+	SYMB(0,WHERE,"WHERE")
+	SYMB(0,EOFP,"EOFP")
+	SYMB(0,CLOSE,"CLOSE")
+	SYMB(0,CREATE,"CREATE")
+	SYMB(0,OPEN,"OPEN")
+	SYMB(0,MPCAN,"MAPCAN")
+	SYMB(0,MPCAR,"MAPCAR")
+	SYMB(0,MAPC,"MAPC")
+	SYMB(0,REMOB,"REMOB")
+	SYMB(0,UNPACK,"UNPACK")
+	SYMB(0,PACK,"PACK")
+	SYMB(0,GENSYM,"GENSYM")
+	SYMB(0,REVERSE,"REVERSE")
+	SYMB(0,ASSOC,"ASSOC")
+	SYMB(0,DELETE,"DELETE")
+	SYMB(0,MEMQ,"MEMQ")
+	SYMB(0,MEMBER,"MEMBER")
+	SYMB(0,LENGTH,"LENGTH")
+	SYMB(0,NCONC,"NCONC")
+	SYMB(0,APPEND,"APPEND")
+	SYMB(0,LIST,"LIST")
+	SYMB(0,CONS,"CONS")
+	SYMB(0,RPLCD,"RPLACD")
+	SYMB(0,RPLCA,"RPLACA")
+	SYMB(0,NTHCDR,"NTHCDR")
+	SYMB(0,NTH,"NTH")
+	SYMB(0,CDDDR,"CDDDR")
+	SYMB(0,CDDAR,"CDDAR")
+	SYMB(0,CDADR,"CDADR")
+	SYMB(0,CDAAR,"CDAAR")
+	SYMB(0,CADDR,"CADDR")
+	SYMB(0,CADAR,"CADAR")
+	SYMB(0,CAADR,"CAADR")
+	SYMB(0,CAAAR,"CAAAR")
+	SYMB(0,CDDR,"CDDR")
+	SYMB(0,CDAR,"CDAR")
+	SYMB(0,CADR,"CADR")
+	SYMB(0,CAAR,"CAAR")
+	SYMB(0,CDR,"CDR")
+	SYMB(0,CAR,"CAR")
+	SYMB(0,DEFUN,"DE")
+	SYMB(0,GETD,"GETD")
+	SYMB(0,PUTD,"PUTD")
+	SYMB(0,GETPL,"GETPL")
+	SYMB(0,PUTPL,"PUTPL")
+	SYMB(0,GET,"GET")
+	SYMB(0,PUT,"PUT")
+	SYMB(0,MFREE,"MFREE")
+	SYMB(0,RADIX,"RADIX")
+	SYMB(0,ABS,"ABS")
+	SYMB(0,MIN,"MIN")
+	SYMB(0,MAX,"MAX")
+	SYMB(0,DEC,"DEC")
+	SYMB(0,INC,"INC")
+	SYMB(0,SQRT,"SQRT")
+	SYMB(0,MODLS,"%")
+	SYMB(0,HALF,"2/")
+	SYMB(0,DOUBLE,"2*")
+	SYMB(0,ONESUB,"1-")
+	SYMB(0,ONEADD,"1+")
+	SYMB(0,DIV,"/")
+	SYMB(0,MULT,"*")
+	SYMB(0,SUB,"-")
+	SYMB(0,ADD,"+")
+	SYMB(0,EQUAL,"EQUAL")
+	SYMB(0,C_EQ,"EQ")
+	SYMB(0,PAIR,"PAIRP")
+	SYMB(0,ATOM,"ATOM")
+	SYMB(0,NUMBER,"NUMBERP")
+	SYMB(0,BOUNDP,"BOUNDP")
+	SYMB(0,SYMBOL,"SYMBOLP")
+	SYMB(0,LESSP,"LESSP")
+	SYMB(0,ODDP,"ODDP")
+	SYMB(0,MINUSP,"MINUSP")
+	SYMB(0,ZEROP,"ZEROP")
+	SYMB(0,L_NOT,"NOT")
+	SYMB(0,L_OR,"OR")
+	SYMB(0,L_AND,"AND")
+	SYMB(0,THROW,"THROW")
+	SYMB(0,CATCH,"CATCH")
+	SYMB(0,RETURN,"RETURN")
+	SYMB(0,GO,"GO")
+	SYMB(0,EPROGN,"EPROGN")
+	SYMB(0,PROGN,"PROGN")
+	SYMB(0,PROG2,"PROG2")
+	SYMB(0,PROG1,"PROG1")
+	SYMB(0,REPTN,"REPTN")
+	SYMB(0,UNTIL,"UNTIL")
+	SYMB(0,IF,"IF")
+	SYMB(0,WHEN,"WHEN")
+	SYMB(0,UNLESS,"UNLESS")
+	SYMB(0,WHILE,"WHILE")
+	SYMB(0,DO,"DO")
+
+;LAST SYMBOL
+	DB	14h
+	DW	0,OBLIST,NIL,NIL
+	DC	"oblist",0,0,0,0
+	DB	14h
+
+
+
+;	END
+;.block 32
+;.org (($ + 3) & (~3))+1
+FREEMEM:
+.fill 2048
+STACK:
+FILES:
+.fill 32
+.echoln "free ",FREEMEM," STACK ",STACK

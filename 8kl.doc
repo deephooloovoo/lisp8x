@@ -1,0 +1,1163 @@
+							**************
+							*   8kLisp   *
+							* 23jun87abu *
+							**************
+
+		8kLisp is a very compact Lisp implementation, whose opject code
+		size is - as the name says - exactly 8 kBytes
+
+		How to invoke and exit 8kLisp:
+			At the CP/M level, type "8kl <cr>", or, if you want to
+			use the debugging- and other tools, "8kl too.l<cr>".
+			To exit, type a single 't'. This has the effect to exit
+			from the current read-eval-print loop and - if you are in
+			the top-level loop (no numeral before the ':'-prompt) -
+			to return to CP/M. A return at any time and from any place
+			can be achieved by executing "(bdos 0)".
+
+		8klisp has some non-standard features, which make programs
+		a bit compacter and faster:
+
+		- Implied Lambda:
+			A list representing a functional body, like user-defined
+			functions or the second argument to 'apply', does not use
+			the special atom 'lambda' found in other Lisps, but is
+			recognized by context.
+			A functional body has the following form:
+
+				(<param> <s-expr> <s-expr> ... <s-expr>)
+
+			<param> must be either a single symbol or a list of symbols.
+			If it is a single symbol, the unevaluated arguments are
+			bound as a list to <param>. (This type of function is called
+			FEXPR in other Lisps).
+			If it is a list of symbols, the arguments are evaluated
+			sequentially from left to right and bound simultaneously
+			to the elements of the list. (EXPR in other Lisps).
+			If there are less arguments than symbols in <param>, the
+			remaining symbols are bound to nil. If there are more
+			arguments than symbols in <param>, they will be ignored.
+			A special case is, if param is of the form (a b . c)
+			(a mixture of EXPR and FEXPR). Here the first two arguments
+			will be evaluated and bound to a and b, and all remaining
+			arguments will be bound non-evaluated as a list to c.
+
+			Examples:
+				:(de test (n)
+				:	(print n) )
+				-> test
+				:(getd 'test)
+				-> ((n) (print n))
+
+				:(apply
+				:	'((x y) (list x '+ y '= (+ x y)))
+				:	'(3 4) )
+				-> (3 + 4 = 7)
+
+				:(((x y z) (* x (+ y z))) 2 3 4)
+				-> 14
+
+		- Implied Prog:
+			The fact that excessive symbols in the parameter list of a
+			functional body are bound to nil, can be used to create
+			local variables (Other Lisps use the function "prog" for
+			that purpose). Besides this, "go" or "return" can be used
+			anywhere inside a 8kLisp function.
+
+		The 8kLisp reader always distinguishes between uppercase and
+			lowercase letters.
+
+		The comment characters are '[' and ']'. Anything between will
+			be ignored by 8kLisp (comments may be nested).
+
+		The super-parenthesis characters are '<' and '>'.
+
+					******************
+					* 8kLisp objects *
+					******************
+
+		Symbols:
+			Any string of characters which is not identical to an already
+			interned symbol and which cannot be interpreted as a number
+			according to the current radix, will be read as a symbol.
+			The maximum size for the symbol's print-name is 114 characters.
+			Besides the print-name, each symbol has space reserved for
+			the value, a function definition and a property list.
+			Symbolic names may not begin with a single quote character,
+			a left parenthesis '(' or an angle bracket '<'. They may con-
+			tain any characters except white space, right parentheses ')',
+			angle brackets '>' or a dot '.'.
+
+		Numbers:
+			Numbers are representated internally as bignums with a maximum
+			size of 121 bytes. Therefore, the largest possible number is
+			256 ** 121, a number with 292 decimal digits.
+			Note, however, than no numbers longer than 255 digits can be
+			PRINTed (depending on the current number radix).
+
+		Cons pair:
+			Cons pairs or cells are 4-byte objects consisting of a 'car'
+			and a 'cdr' part.
+
+		nil:
+			nil is a special object which can both be viewed as an empty
+			list or as an atom. The reader will accept "()" or "nil" (must
+			be lower case), but it will always be printed as "nil".
+			The operations (car nil) and (cdr nil) return nil. nil is
+			also returned as false-value from all predicate functions.
+
+		Specification of function argument types and return values used
+			in this manual:
+
+			any			any legal s-expr
+			foo			function name or functional body
+			symbol		symbolic atom
+			bool		t or nil
+			list		nil-terminated list
+			pair		dotted pair
+			byte		pos. number in the range 0 .. 255
+			num24		pos. number in the range 0 .. 16777215
+			number		pos. or neg. number with max. about 292 digits
+			channel		I/O channel number
+
+		Functions marked with (*) are defined as s-expressions in the
+			file "too.l"
+
+					***********************
+					* Keyboard line input *
+					***********************
+
+		When 8kLisp needs keyboard input from the user, it displays its
+		prompt ':' and accepts one line of input. The user can type any
+		sequence of ASCII characters, terminated by a carriage return
+		(Control-M or ^M). Mistypes can be corrected by typing a backspace
+		(^H) to erase the last character or a control-X (^X) to delete
+		the entire line. Typing a control-R (^R) will retype the last input
+		line to enable corrections.  It is also possible to execute a command
+		repeatedly by typing ^R and ^M several times. Control-I or TAB
+		expands to 4 spaces, all other control characters except ^C
+		are echoed as '_'. Typing ^C resets 8kLisp, by restoring possibly
+		nested 'revalo'-loops to top level, unwinding the stack and setting
+		the number radix to 10.
+
+		Special characters:
+			^M	Terminate input
+			^H	Backspace, erase last character
+			^X	Kill line
+			^R	Retype line
+			^I	TAB, expands to 4 spaces
+			^C	Reset 8kLisp
+
+		Not more than 126 characters will be accepted in one line.
+
+					*****************************
+					* Evaluation and assignment *
+					*****************************
+
+		(eval 'any) -> any
+			Evaluate the argument.
+
+		(quote any) -> any
+			Return the argument unevaluated. A convenient abbreviation
+			for this function is the single-quote character (').
+			Example:
+				:(setq a 7)
+				-> 7
+				:a
+				-> 7
+				:(quote a)
+				-> a
+				:(eval (quote a))
+				-> 7
+				:(eval 'a)
+				-> 7
+
+		(apply 'foo 'list) -> any
+			Apply the funtion to the argument list.
+			Example:
+				:(apply '+ '(3 4))
+				-> 7
+				:(apply '((x y z) (* x (+ y z))) '(2 3 4))
+				-> 14
+
+		(setq symbol 'any) -> any
+			Set the value cell of symbol. The first argumtent is not
+			evaluated.
+			Example:
+				:(setq a 7)
+				-> 7
+				:a
+				-> 7
+
+		(set 'symbol 'any) -> any
+			Set the value cell of the symbol.
+			Example:
+				:(setq b 'a)
+				-> a
+				:(set b 7)
+				-> 7
+				:a
+				-> 7
+
+					********************
+					* Symbol functions *
+					********************
+
+		(gensym) -> symbol
+			A unique uninterned symbol of the form "Gxxxxx" is returned.
+			Example:
+				:(gensym)
+				-> G00001
+
+		(unpack 'symbol) -> list
+			The characters that constitute the symbol are returned as a
+			list.
+			Example:
+				:(unpack 'abcd)
+				-> (a b c d)
+
+		(pack 'list) -> symbol
+			The single- or multi-character symbols in the list are
+			concatenated to form a new uninterned symbol.
+			Example:
+				:(pack '(a bc d))
+				-> abcd
+
+		(ascii 'symbol) -> byte
+			The ASCII-value of the first character of the symbol is
+			returned.
+			Example:
+				:(ascii 'abcd)
+				-> 97
+
+		(char 'byte) -> symbol
+			The byte is interpreted as an ASCII value and an uninterned
+			single-character symbol is returned.
+			Example:
+				:(pack (list (char 65) (char 66) (char 67)))
+				-> ABC
+
+		(remob 'symbol) -> symbol
+			The symbol is removed from the oblist. Note that protected
+			symbols (i.e. the symbols t, quote, gc, alloc, intern, ss,
+			@ and step) cannot be remob'ed.
+			Example:
+				:(car '(1 2 3))
+				-> 1
+				:(remob 'car)
+				-> car
+				:(car '(1 2 3))
+				car undef error
+
+		(intern 'symbol) -> symbol
+			Intern the symbol, if it is not already interned.
+			Example:
+				:(intern (pack '(a b c)))
+				-> abc
+
+		(oblist) -> list
+			Return a list of all currently interned symbols.
+
+
+					********************
+					* Input and output *
+					********************
+
+		Legal filenames are lists of the form:
+
+				(filename type drive)
+
+		where 'type' and 'drive' are optional. Where appropriate, the
+		wildcard characters '?' and '*' may be used according to the CP/M
+		conventions.
+
+		In those functions where the channel is optional, the default
+		channel is the console device.
+
+		(in file) -> file
+			The file specified by filename, ext and drive is opened and
+			the console input is redirected to this file.
+			Example:
+				:(in myfile l b) [Loads the file "b:myfile.l"]
+				-> (myfile l b)
+
+		(open 'file 'channel) -> channel
+			Open 'file' on 'channel'. An error is generated if the file
+			is not found.
+			Example:
+				:(open '(test dat) 1)
+				-> 1
+
+		(create 'file 'channel) -> channel
+			Create 'file' on 'channel'. Any existing file of the same
+			name is truncated to zero length.
+			Example:
+				:(create '(test dat b) 0)
+				-> 0
+
+		(close ['channel]) -> channel
+			The file currently open on 'channel' is closed. If the file
+			was written to, any necessary buffer-flushing will be performed
+			automatically. No end-of-file character is appended to the
+			data.
+			Example:
+				:(putc 26 0)		[Append e-o-f character]
+				-> 26
+				:(close 0)			[and close the file]
+				-> 0
+
+		(getc ['channel]) -> byte
+			The next byte from 'channel' is returned and the file pointer
+			incremented.
+
+		(putc 'byte ['channel]) -> byte
+			The 'byte' is written to 'channel' and the file pointer
+			incremented.
+
+		(read ['channel]) -> any
+			Read one s-expr from 'channel'.
+
+		(prin1 'any ['channel])
+			Print one s-expr to 'channel'.
+
+		(print 'any ['channel])
+			Print one s-expr to 'channel' and then a newline sequence.
+
+		(cr ['channel])
+			Print a newline sequence to 'channel'.
+
+		(sp ['channel])
+			Print one space character (ASCII 32) to 'channel'.
+
+		(key) -> byte or nil
+			Return nil if no key was pressed, else return the key's
+			ASCII code.
+			Example:
+				:(key)
+				-> nil
+				:(until (setq c (key)))
+				[Hit return key]
+				-> nil
+				:c
+				-> 13
+
+		(seek 'num24 'channel) -> num24
+			Position the file pointer of 'channel' to the position 'num24'.
+			All subsequent read or write operations will start at this
+			position.
+
+		(where 'channel) -> num24
+			Return the current file pointer of 'channel'.
+
+		(eofp ['channel]) -> bool
+			Return t if read operations from 'channel' advanced the file
+			pointer after the end of file.
+
+
+					***************************************
+					* System access and control functions *
+					***************************************
+
+		(revalo ['channel]) -> t
+			8kLisp's main read-eval-print loop. One revalo is initialized
+			at system start-up, others during error- or break-processing.
+			The level of nesting is indicated in the prompt, which is ':'
+			for the uppermost level, and '1:', '2:' ... for the other
+			levels.
+			The input of the atom 't' to the reader results in a termi-
+			nation of the revalo. Termination of the top-level revalo
+			will result in a return to CP/M.
+			In case of a console break (ESC-key when SYMBOL key is nonNil)
+			or a programmed break (function 'stop'), a revalo is entered and
+			the user can inspect the environment, enter single-step-mode by
+			executing (step) exit the revalo and continue the computation by
+			typing 't' <cr> or terminate the computation by typing ^C.
+			The revalo entered by an error cannot be exited by typing 't',
+			but only by resetting 8kLisp (^C).
+
+		(radix 'byte) -> byte
+			Set the number radix to the supplied argument and return
+			the previous number radix.
+			Example:
+				:(+ 6 7)
+				-> 13
+				:(radix 16)
+				-> A
+				:(+ 6 7)
+				-> D
+				:[Reset]			[Pressed ^C]
+				:(+ 6 7)
+				-> 13
+
+		(mfree) -> number
+			Return the number of bytes still available in the
+			space between heap and stack. If this value is close to
+			zero, a garbage collection is likely to occur in the near
+			future.
+
+		(alloc 'number1 ['number2]) [No return to caller]
+			Space for number1 file channels is allocated above the
+			stack.
+			If number2 is specified, additional space of number2 bytes is
+			reserved (e.g. for peek and poke operations with the
+			@-operator in connection with the bios function. In this case
+			the value of the SYMBOL 'alloc' is set to the start address
+			of this allocated space.
+			'alloc' is a special function in that it does not return to
+			the caller, but instead performs a reset operation identical
+			to the reset (^C) from the keyboard. It is usually used at
+			system start up.
+
+		(@ 'address ['value]) -> Contents of address
+			If the "value" is omitted, '@' returns the the value of
+			the byte at "address" (PEEK). If "value" is specified, the
+			location "address" is set to "value" (POKE), and the old value
+			is returned.
+
+		(dir [file [ext [drive]]]) -> List of files
+			Directory function. The wildcard characters '*' and '?' may
+			be used in the file namings.
+			Example:
+				:(sort (dir * com))
+				-> ((8KL COM) (TEST COM))
+
+		(era 'file) -> file
+			Erase the specified file(s). Return value is the file name
+			or nil if no matching file was found.
+
+		(ren 'oldname 'newname) -> newname
+			Renames the file "oldname" to "newname". Returns "newname"
+			if successfull, else nil.
+
+		(save filename) -> filename
+			Save the current environment in the file specified. The whole
+			machine state is written and can be restored at a later time.
+
+		(load filename) -> filename
+			Load new environment from the specified file. Any computation
+			interrupted by breaking with the ESC key may be continued:
+				:(de fibo (n)
+					((lessp n 2)
+						1
+						(+ (fibo (1- n)) (fibo (- n 2>
+				-> fibo
+				:(fibo 15)
+				[Break]				[Hit ESC]
+				1:(save fibo env)
+				-> (fibo env)
+				1:[Reset]			[Hit ^C]
+				:t					[Exit 8kLisp]
+
+				A>8kl				[Enter again]
+					...signon message...
+				49928 Bytes free
+				:(load fibo env)	[Load saved environment]
+				-> (fibo env)
+				1:t					[Continue]
+				-> 987				[Correct result]
+
+		(bios 'no 'bc 'de) -> Areg
+			The bios function "no" is called with the register-pairs
+			BC and DE set. Return value is the content of the A register.
+
+		(bdos 'c ['de]) -> HL
+			A call to location 5 (bdos-call) is performed with the register
+			C set to the system call number and possibly DE set to the
+			second argument. Returned is the content of the HL register
+			pair.
+
+		(gc) -> t
+			Force a garbage collection. If the value of the SYMBOL "gc"
+			is non-nil, a message in the form:
+
+				GC: 42280 Bytes free
+
+			is displayed, indicating the amount of free space.
+
+
+					*********************
+					* List manipulation *
+					*********************
+
+		(assoc 'any 'list) -> pair
+			The second argument must be a list of dotted pairs. Returned
+			is the dotted pair whose car is equal to the first argument
+			or nil if no match is found.
+			Example:
+				:(assoc 'b '((a . 1) (b . 2) (c . 3)))
+				-> (b . 2)
+
+		(member 'any 'list) -> restlist
+			If the first argument is a top level element of the second,
+			the restlist starting with the matched element is returned.
+			Otherwise nil is returned.
+			member uses equal for comparison.
+			Example:
+				:(member 3 '(1 2 3 4 5))
+				-> (3 4 5)
+
+		(memq 'any 'list) -> restlist
+			Similar to member, with the only difference that eq is used
+			for comparison instead of equal
+			Example:
+				:(memq 'c '(a b c d e))
+				-> (c d e)
+				:(memq 3 '(1 2 3 4 5))
+				-> nil
+
+		(car 'pair) -> 'any
+			Return the car part of the argument. (car nil) is nil.
+			Example:
+				:(car '(1 2 3))
+				-> 1
+
+		(cdr 'pair) -> 'any
+			Return the cdr part of the argument. (cdr nil) is nil.
+			Example:
+				:(cdr '(1 2 3))
+				-> (2 3)
+
+		(caar 'pair) -> 'any
+		(cadr 'pair) -> 'any
+		(cdar 'pair) -> 'any
+		(cddr 'pair) -> 'any
+		(caaar 'pair) -> 'any
+		(caadr 'pair) -> 'any
+		(cadar 'pair) -> 'any
+		(caddr 'pair) -> 'any
+		(cdaar 'pair) -> 'any
+		(cdadr 'pair) -> 'any
+		(cddar 'pair) -> 'any
+		(cdddr 'pair) -> 'any
+			Combinations of car's and cdr's.
+			E. g. (caddr x) is equivalent to (car (cdr (cdr x)))
+
+		(reverse 'list) -> list
+			Return a list with the top level elements in reverse order.
+			Example:
+				:(reverse '(1 2 3 4 5 6))
+				-> (6 5 4 3 2 1)
+
+		(delete 'any 'list) -> list
+			Return a list containing all elements of the second argument
+			but with the first occurrence of the first argument deleted.
+			equal is used for comparison
+			Example:
+				:(delete '(c d) '((a b) (c d) e (f)))
+				-> ((a b) e (f))
+
+		(length 'list) -> number
+			Return the number of elements in the argument
+			Example:
+				:(length '(1 2 3 4 5))
+				-> 5
+
+		(nth 'num24 'list) -> any
+			Return the nth element of the second argument, with the
+			car being the zeroth element.
+			Example:
+				:(nth 0 '(1 2 3))
+				-> 1
+				:(nth 2 '(1 2 3))
+				-> 3
+				:(nth 4 '(1 2 3))
+				-> nil
+
+		(nthcdr 'num24 'list) -> list
+			Perform the cdr operation num24 times on the list and return
+			the result.
+			Example:
+				:(nthcdr 0 '(1 2 3))
+				-> (1 2 3)
+				:(nthcdr 2 '(1 2 3))
+				-> (3)
+				:(nthcdr 4 '(1 2 3))
+				-> nil
+
+		(list 'any) -> list
+			Return a list of the argument(s)
+			Example:
+				:(setq a 1)
+				-> 1
+				:(setq b 2)
+				-> 2
+				:(setq c 3)
+				-> 3
+				:(list a b c)
+				-> (1 2 3)
+
+		(cons 'any 'any) -> pair
+			Return a pair constructed from the arguments
+			Example:
+				:(cons 1 2)
+				-> (1 . 2)
+				:(cons 1 '(2 3 4))
+				-> (1 2 3 4)
+
+		(append 'list 'any) -> list
+			Return a list consisting of the concatenation of the arguments.
+			Example:
+				:(append '(a b c) '(d e f))
+				-> (a b c d e f)
+				:(append '(1 2 3) 4)
+				-> (1 2 3 . 4)
+
+		(nconc 'list 'any) -> list
+			Destructive version of append. The arguments are changed.
+			Example:
+				:(setq x '(a b))
+				-> (a b c)
+				:(setq y '(c d))
+				-> (d e f)
+				:(nconc x y)
+				-> (a b c d)
+				:x
+				-> (a b c d)
+
+		(rplaca 'pair 'any) -> pair
+			Replace the car of the first argument with the second
+			argument and return the (modified) pair.
+
+		(rplacd 'pair 'any) -> pair
+			Replace the cdr of the first argument with the second
+			argument and return the (modified) pair.
+
+		(push 'any symbol) -> list
+			(push 123 stack) is roughly equivalent to
+			(setq stack (cons 123 stack))
+
+		(pop symbol) -> any
+			(pop stack) is roughly equivalent to
+			(prog1 (car stack) (setq stack (cdr stack)))
+
+
+					***********
+					* Mapping *
+					***********
+
+		(mapc 'list 'foo) -> nil
+			foo is successively applied to the elements of list
+			Example:
+				:(mapc '(1 2 3 4) '((x) (prin1 x) (sp)))
+				1 2 3 4 -> nil
+
+		(mapcar 'list 'foo) -> list
+			Returns a constructed list of foo applied to the elements
+			of list
+			Example:
+				:(mapcar '(1 2 3 4) '1+)
+				-> (2 3 4 5)
+
+		(mapcan 'list 'foo) -> list
+			Returns a concatenated list of foo applied to the elements
+			of list
+			Example:
+				:(mapcan '(1 2 3 4 5 6 7 8) '((x) ((oddp x) (list x>
+				-> (1 3 5 7)
+
+
+					******************************
+					* Function definition access *
+					******************************
+
+		(putd 'symbol 'body) -> symbol
+			Set the function cell of 'symbol' to 'body'
+			Example:
+				:(putd 'test '((x y) (+ x y>
+				-> test
+				:(test 3 4)
+				-> 7
+
+		(getd 'symbol) -> function definition
+			Return the function definition of the symbol. If it is a
+			system function (assembly language), its start address
+			is returned.
+			Example:
+				:(getd 'test)
+				-> ((x y) (+ x y))
+
+		(de symbol body) -> symbol
+			A more convenient way to define a function than putd
+			Example:
+				:(de test (x y)
+				:	(+ x y>
+				-> test
+
+					************************
+					* Property list access *
+					************************
+
+		(put 'symbol 'property 'value)
+			Set the property of symbol to value
+
+		(get 'symbol 'property)
+			Return the specified property of symbol
+
+		(putpl 'symbol 'list)
+			Set the property list of symbol
+
+		(getpl 'symbol)
+			Return the property list of symbol
+
+
+					************************
+					* Arithmetic functions *
+					************************
+
+		(+ 'number 'number) -> number
+			Addition
+
+		(- 'number) -> number
+			Unary minus
+
+		(- 'number 'number) -> number
+			Subtraction
+
+		(* 'number 'number) -> number
+			Multiplication
+
+		(/ 'number 'number ['round]) -> number
+			Division. Rounded if round is non-nil.
+
+		(% 'number 'number) -> number
+			Modulus
+
+		(1+ 'number) -> number
+			Add one
+
+		(1- 'number) -> number
+			Subtract one
+
+		(2* 'number) -> number
+			Multiply by two (shift left)
+
+		(2/ 'number ['round]) -> number
+			Divide by two (shift right). Rounded if round is non-nil.
+
+		(sqrt 'number ['round]) -> number
+			Square root. Rounded if round is non-nil.
+
+		(inc symbol) -> Symbol's new value
+			(inc i) is equivalent to (setq i (1+ i))
+
+		(dec symbol) -> Symbol's new value
+			(dec i) is equivalent to (setq i (1- i))
+
+		(max 'any 'any) -> any
+			Return the greater one of the arguments. 'lessp' is used
+			as comparison function, so the arguments may be numbers,
+			symbols or lists (see 'lessp')
+
+		(min 'any 'any) -> any
+			Return the smaller one of the arguments. 'lessp' is used
+			as comparison function, so the arguments may be numbers,
+			symbols or lists (see 'lessp')
+
+		(abs 'number) -> number
+			Absolute value
+
+
+					***********************
+					* Predicate functions *
+					***********************
+
+		(not 'any) -> bool
+			not returns t if and only if its argument is nil. The function
+			'null' found in other Lisps is functionally identical to 'not'
+			and therefore not supported (save space).
+
+		(eq 'any 'any) -> bool
+			If the arguments are identical objects, t is returned, else
+			nil.
+
+		(equal 'any 'any) -> bool
+			t is returned, if the arguments are symbols and if they are
+			eq, or, if the arguments are numbers and they have the same
+			numerical value, or, if they are pairs and their car's and
+			cdr's are equal again.
+			Else nil is returned.
+
+		(pairp 'any) -> bool
+			t is returned, if the argument is a pair, else nil.
+			Note that (pairp nil) returns t.
+
+		(atom 'any) -> bool
+			t is returned, if the argument is atomic (symbol or number).
+			Note that (atom nil) returns t.
+
+		(numberp 'any) -> bool
+			t is returned if the argument is a number, else nil.
+
+		(symbolp 'any) -> bool
+			t is returned if the argument is a symbol, else nil.
+
+		(boundp 'symbol) -> bool
+			t is returned if the symbol is bound to a value, else nil.
+
+		(lessp 'any 'any) -> bool
+			If the arguments are numbers, they are compared numerically,
+			else, if the arguments are symbols, they are compared
+			lexically. If the arguments are lists, their car elements
+			are used instead (or, if these are lists again the 'car'-ing
+			process continues until they are atomic).
+			Then, if the first argument is strictly less than the second,
+			t is returned, else nil.
+
+		(minusp 'number) -> bool
+			If the argument is less than zero, t is returned, else nil.
+
+		(zerop 'number) -> bool
+			If the argument is zero, t is returned, else nil.
+
+		(oddp 'number) -> bool
+			If the argument is odd, t is returned, else nil (even).
+
+
+					****************
+					* Program flow *
+					****************
+
+		(progn body) -> last value
+			Evaluate the expressions in the body from left to right
+			and return the result of the last expression
+			Example:
+				:(progn (prin1 1) (prin1 2) (prin1 3))
+				123-> 3
+
+		(prog1 body) -> first value
+			Evaluate the expressions in the body from left to right
+			and return the result of the first expression
+			Example:
+				:(prog1 (prin1 1) (prin1 2) (prin1 3))
+				123-> 1
+
+		(prog2 body) -> second value
+			Evaluate the expressions in the body from left to right
+			and return the result of the second expression
+			Example:
+				:(prog2 (prin1 1) (prin1 2) (prin1 3))
+				123-> 2
+
+		(eprogn body) -> last value
+			The "eval"-version of progn. Useful for data driven programs.
+			Example:
+				:(setq a '((prin1 1) (prin1 2) (prin1 3)))
+				-> ((prin1 1) (prin1 2) (prin1 3))
+				(eprogn a)
+				123 -> 3
+
+		(reptn 'num24 body) -> any
+			Repeat to execute the elements of body num24 times. Return
+			the result of the last evaluation
+			Example:
+				:(reptn 5 (prin1 'Olulu))
+				OluluOluluOluluOluluOlulu -> Olulu
+				:(setq n 1)
+				-> 1
+				:(reptn 8 (setq n (2* n>
+				-> 256
+
+		(if 'condition trueExpression falseBody) -> any
+			Test the condition and execute the trueExpression if non-nil.
+			Else execute the falseBody. Note that for the true case only
+			one single expression is permitted.
+			Example:
+				:(if t (print 1) (print 2) (print 3))
+				1
+				-> 1
+				:(if nil (print 1) (print 2) (print 3))
+				2
+				3
+				-> 3
+
+		(when 'condition body) -> any
+			Execute the body if the condition evaluates to non-nil.
+			Example:
+				:(when t (print 1) (print 2) (print 3))
+				1
+				2
+				3
+				-> 3
+				:(when nil (print 1) (print 2) (print 3))
+				-> nil
+
+		(unless 'condition body) -> any
+			Execute the body if the condition evaluates to nil.
+				:(unless nil (print 1) (print 2) (print 3))
+				1
+				2
+				3
+				-> 3
+				:(unless t (print 1) (print 2) (print 3))
+				-> nil
+
+		(cond (clauses)) -> any
+			Multi-way conditional. Look into the next Lisp text book
+			for an explanation.
+
+		(while 'condition body) -> any
+			Test the condition and return nil if it evaluates to nil.
+			Else execute the elements of body and repeat the process
+			until the condition evaluates to nil. The result of the
+			last element of body is returned
+			Example:
+				:(setq l '(0 1 2 3 4 5 6 7))
+				-> (0 1 2 3 4 5 6 7)
+				:(while l (prin1 (pop l)))
+				01234567-> 7
+
+		(until 'condition body) -> any
+			Evaluate the elements of body and then test the condition.
+			If it evaluates to nil, repeat the process, else return the
+			the result of the last element of body
+
+		(go 'label) [No return to caller]
+			Transfer control to 'label'. 'label' must be a number between
+			1 and 255, and must be accessible as a top level element of
+			the function body.
+			Example:
+				:(de gotest (n)
+				:	(go n)
+				:		1 (print 'a)
+				:		2 (print 'b)
+				:		3 (print 'c) )
+				-> gotest
+				:(gotest 2)
+				b
+				c
+				-> c
+
+		(return 'value) [No return to caller]
+			Exit the current function with 'value' as return-value.
+
+		(catch 'tag 'body) -> body's return value
+			Set up a frame to catch a possible throw. After evaluation
+			of tag to produce an object that names the catch, the elements
+			of body are evaluated as an implicit progn with the result
+			of the last expression being returned, except that if during
+			the evaluation a throw was executed with its tag matching
+			(is eq to) the tag of the catch. In this case the evaluation
+			of body is aborted and the value of throw returned immediately
+
+		(throw 'tag 'value) [No return to caller]
+			Transfer control to the matching catch construct. The tag is
+			first evaluated to produce the throw tag and the most recent
+			outstanding catch whose tag matches the throw tag is exited
+			returning the value.
+
+		(and (expr1) (expr2) ... )
+			The expressions are evaluated from left to right. If nil
+			is encountered, nil is returned immediately, else the result
+			of the last expression is returned.
+
+		(or (expr1) (expr2) ... )
+			The expressions are evaluated from left to right. If a non-nil
+			value is encountered, it is returned immediately, else the
+			result of the last expression is returned.
+
+
+					*************
+					* Debugging *
+					*************
+
+		(ss) -> t
+			Show stack: Print the contents of the stack. Unbound symbol
+			values are printed as "[void]". Returns t unless interrupted
+			by hitting the ESC key (return nil).
+
+		(stop 'condition)
+			If condition evaluates to non-nil, enter a break loop identi-
+			cally to a console break (ESC, SYMBOL key nonNIL)
+
+		(step) -> nil
+			Enter single-step execution
+
+		(run) -> nil
+			Terminate single-step execution
+
+			Example:
+				:(de test (n)			[Define a function]
+				:	(stop (zerop n))	[Break if n i zero]
+				:	(test (1- n>		[Else recurse]
+				-> test
+				:(test 3)				[Let's try it]
+				[Break]
+				1:n						[What's the value of n?]
+				-> 0					[Of course zero]
+				1:(step)				[Go to single stepping]
+				-> nil
+				1:t						[Exit revalo: Continue one step]
+				(test (1- n))
+				1:t						[One more step]
+				(1- n)
+				1:(eval ss)				[What is the current expr's result]
+				-> -1
+				1:(run)					[End single-stepping]
+				-> nil
+				1:t						[Run free]
+				[Break]					[Hit ESC key to break]
+				1:n
+				-896
+				1:[Reset]				[Hit ^C to reset]
+				:
+
+		(*) (pp foo)
+			Pretty-print a function
+
+		(*) (trace foo1 foo2 ...)
+			Trace the functions by modifying their function definitions
+			so that the print their arguments upon entry and their return
+			value upon exit. Only functions defined as s-expressions
+			(no system functions) can be traced.
+			If a traced function exits abnormally (return or throw), the
+			return value will not be printed.
+
+		(*) (untrace foo1 foo2 ...)
+			Restore the functions to their untraced state
+
+		(*) (break foo [condition]) -> foo
+			Stop execution when entering function foo. If condition is
+			specified, stop only when condition evaluates to non-zero.
+			If condition is not specified, the function name is used
+			as the stop condition, with the result that the variable
+			ss contains the function name after the break. This is
+			helpful in case there are many broken functions and the user
+			wants to know in which part of the program the execution
+			stopped.
+			Example:
+				:(break fibo (equal n 3))
+				-> fibo
+				(fibo 5)
+				[Break]
+				1:n
+				-> 3
+
+		(*) (unbreak foo1 foo2 ...)
+			Restore the functions to their unbroken state
+
+		(*) (ed foo) -> foo
+			Edit the function definition of foo. ed is a simple structure
+			editor recognizing the following commands:
+
+				RETURN		edit the car
+				SPACE		edit the cdr
+				BACKSPACE	go back one level
+				i			insert before car
+				d			delete car
+				r			replace car
+				@			remove parentheses around car
+				1 ... 9		group n items into a list
+				e			exit
+				q			quit without saving the changes
+
+			After executing (ed foo), the body of foo is displayed. Use
+			RETURN and SPACE (and, if necessary BACKSPACE) to move to the
+			desired location, then make the necessary changes with i, d, r
+			@ or digits and exit with e or go back until top level using
+			BACKSPACE repeatedly. It takes some training to learn how to
+			use RETURN and SPACE to get to point you want to.
+
+		(*) (who atom)
+			Returns a list of all funtions in the system which refer to
+			the given atom. Useful to browse through a big program.
+
+		(*)	(sort list)
+			Returns list (quick-)sorted with lessp.
+
+					********************
+					* Global variables *
+					********************
+
+		t
+			"true" flag, returned by the predicate functions. t evaluates
+			to itself and should not be assigned another value.
+
+		gc
+			If non-nil, the garbage collector prints a message upon start
+			of collection and the number of free bytes when finished
+			(Default nil)
+
+		intern
+			If nil, new symbols generated by the reader will not be
+			interned, while symbols already present in the system are
+			accessible as normally. Use whith caution!
+			(Default t)
+
+		alloc
+			Contains the start address of buffer memory allocated by the
+			function alloc.
+
+		ss
+			Contains the top of the stack during single-step execution.
+			Normally used in the form (eval ss) to examine the possible
+			result of the next step
+
+		@
+			Contains the last result printed in the top level revalo loop
+
+		key
+			Enables console breaks (ESC) when nonNIL.
+
+					******************
+					* Error messages *
+					******************
+
+		XXXX unbound error
+			XXXX is an unbound symbol
+
+		XXXX undef error
+			XXXX is an undefined function
+
+		XXXX: list error
+			Detected XXXX where argument must be a list
+
+		XXXX: symbol error
+			Detected XXXX where argument must be a symbol
+
+		XXXX: number error
+			Detected XXXX where argument must be a number
+
+		XXXX: byte error
+			Detected XXXX where argument must be a single-byte
+			number (0 .. 255)
+
+		Circ error
+			Function cannot be applied to circular list structure
+
+		Create error
+			File cannot be created
+
+		Disk error
+			Unsuccessful write operation due to a full disk
+
+		File error
+			Access to an illegal channel or to a file not open
+			in the correct mode
+
+		Go error
+			Matching label not found in function body
+
+		Load error
+			Tried to load a file which is not a correct environment dump
+
+		Mem error
+			Out of memory
+
+		Ovrfl error
+			Overflow during arithmetic operation
+
+		Open error
+			File cannot be opened
+
+		Read error
+			Reading an illegal s-expression or detected end-of-file
+			inside a comment
+
+		Range error
+			Expected a number in the range 0 .. 16777215
+
+		Size error
+			Symbol name is too long
+
+		Throw error
+			Executed a 'throw' without a matching 'catch'

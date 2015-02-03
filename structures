@@ -1,0 +1,54 @@
+            8kLisp Internal Data Types
+            ==========================
+
+   nil:
+
+      +----+
+      | 01 |
+      +----+
+
+
+   cell:
+
+      +----+----+----+----+
+      |   CAR   |   CDR   |
+      +----+----+----+----+
+        lo   hi   hi   lo
+
+
+   symbol (gc):
+
+      +----+----+----+----+----+----+----+----+----+----+----+----+
+      | 0C |  value  |  fdef   |  plist  |  hlink  | 67   E3 | 0C |
+      +----+----+----+----+----+----+----+----+----+----+----+----+
+       tag                                            "gc"    size
+
+
+   number (-7):
+
+      +----+----+----+----+
+      | 84 | 81 | 07 | 04 |
+      +----+----+----+----+
+       tag   ^^  val  size
+            /  \
+         sign  size
+
+
+
+   tag byte:
+
+      +---+---+---+---+---+---+---+---+
+      | N |        size       | M | C |
+      +---+---+---+---+---+---+---+---+
+
+      N: Type flag for atoms
+         0 -> symbol
+         1 -> number
+
+      size: 5 bit for the atom's total size
+
+      M: mark bit for garbage collection
+
+      C: Cell flag
+         0 -> atom
+         1 -> cell
